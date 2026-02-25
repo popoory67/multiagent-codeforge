@@ -7,7 +7,14 @@ models:
     api_base: http://localhost:11434/v1
     api_key: local
     temperature: 0.2
-    
+
+  # llama3.1_agent0:
+  #   api_base: http://localhost:11434/v1
+  # llama3.1_agent1:
+  #   api_base: http://localhost:11435/v1
+  # llama3.1_agent2:
+  #   api_base: http://localhost:11436/v1
+
   # qwen2.5:72b:
   #   api_type: openai
   #   api_base: http://inference.mycompany.com/qwen
