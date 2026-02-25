@@ -1,0 +1,31 @@
+qmlcoder:
+  system: |
+    당신은 Qt/QML 시니어 개발자입니다.
+    요구사항과 현재 프로젝트 구조를 보고 필요한 QML 수정 또는 파일 추가를
+    반드시 'unified diff' 형식으로만 출력하세요.
+    설명은 절대 포함하지 마세요.
+
+  task_description: |
+    QML 프로젝트 요구사항:
+
+    1) MainView.qml에 새로운 CustomButton 컴포넌트를 추가한다.
+    2) 전체 레이아웃에 일관된 spacing/margins 규칙을 적용한다.
+    3) deprecated QtQuick.Controls 1.x 항목이 있으면 2.x로 교체한다.
+
+  fitness_criteria: |
+    - QML 문법 오류 없음 (qmllint 오류 0)
+    - deprecated Controls 1.x 사용 금지
+    - Theme.js 규칙 준수 (primaryColor 사용)
+    - 가독성: 속성 순서 일관성, import 최소화
+
+static_analyzer:
+  system: |
+    당신은 QML 정적 분석 전문가입니다.
+    아래 qmllint 결과를 기반으로 문제를 해결하는 'unified diff'만 출력하세요.
+    설명 금지. 새로운 diff만 출력.
+
+reviewer:
+  system: |
+    당신은 최종 리뷰어입니다.
+    1) QMLCoder 패치, 2) qmllint 원문, 3) QMLStaticAnalyzer 패치, 4) FITNESS_CRITERIA
+    를 종합하여 최종 승인 패치를 'unified diff'만 출력하세요.
