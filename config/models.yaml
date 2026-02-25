@@ -1,20 +1,21 @@
-default_model: llama3.1:8b
+default_model: llama3.1
 
 models:
-  llama3.1:8b:
-    provider: openai-compatible
+  llama3.1:
+    model: llama3.1:8b
+    api_type: openai
     api_base: http://localhost:11434/v1
     api_key: local
     temperature: 0.2
+    
+  # qwen2.5:72b:
+  #   api_type: openai
+  #   api_base: http://inference.mycompany.com/qwen
+  #   api_key: ${ENV_QWEN_KEY}
+  #   temperature: 0.1
 
-  qwen2.5:72b:
-    provider: openai-compatible
-    api_base: http://inference.mycompany.com/qwen
-    api_key: ${ENV_QWEN_KEY}
-    temperature: 0.1
-
-  gpt-4.5-pro:
-    provider: openai
-    api_base: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
-    temperature: 0.2
+  # gpt-4.5-pro:
+  #   api_type: openai
+  #   api_base: https://api.openai.com/v1
+  #   api_key: ${OPENAI_API_KEY}
+  #   temperature: 0.2
