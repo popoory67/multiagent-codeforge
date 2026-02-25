@@ -2,108 +2,108 @@
 # -*- coding: utf-8 -*-
 
 import os
+
 from pathlib import Path
-import yaml
 
-from utils.install_model import run_model
+from utils.install_model import run_model, wait_for_server
 from utils.llm_client import LLMClient
-from utils.project_utils import summarize_project
+from utils.project_utils import summarize_project, load_yaml
 from utils.diff_utils import is_unified_diff, apply_unified_diff
+from utils.parallel import run_agents_in_parallel
+from utils.logger import setup_logger
 
-from agents.generator_agent import GenerateAgent
-from agents.linter_agent import LinterAgent
+from agents.pipeline import AgentPipeline
 from agents.reviewer_agent import ReviewerAgent
 
-
-def load_yaml(p):
-    return yaml.safe_load(open(p, "r", encoding="utf-8"))
-
-
 SCRIPT_DIR = Path(__file__).resolve().parent
+logger = setup_logger("Main", "Main_")
 
 def main():
-    # -------------------------------
-    # 1) Load configs (기존 방식 그대로)
-    # -------------------------------
-    config = load_yaml(SCRIPT_DIR / "config" / "config.yaml")
+
+    # Load configs
+    config  = load_yaml(SCRIPT_DIR / "config" / "config.yaml")
     prompts = load_yaml(SCRIPT_DIR / "config" / "prompts.yaml")
     models  = load_yaml(SCRIPT_DIR / "config" / "models.yaml")
 
     default = models["default_model"]
     mc = models["models"][default]
 
-    # -------------------------------
-    # 2) Ollama 환경 자동 준비 (기존 그대로)
-    # -------------------------------
+    # Setting Ollama (example)
     run_model(
         pull_model=mc["model"],
         model_dir=Path(config["ollama"]["model_dir"]),
         check_only=False
     )
+    
+    logger.info("Waiting for Ollama server before LLMClient init...")
+    
+    if not wait_for_server(timeout_sec=30):
+        logger.error("Ollama server not responding after startup.")
+        return
 
-    # -------------------------------
-    # 3) LLM Client 준비
-    # -------------------------------
-    llm = LLMClient(
-        base_url=mc["api_base"],
-        api_key=mc["api_key"],
-        model=mc["model"],
-        temperature=mc.get("temperature", 0.2)
-    )
-
-    # -------------------------------
-    # 4) Summarize (기존 방식 그대로)
-    # -------------------------------
     ctx = summarize_project(
         ".",
         tuple(config["project"]["target_exts"]),
         max_chars=9000
     )
 
-    # -------------------------------
-    # 5) Generate Agent
-    # -------------------------------
-    gen_agent = GenerateAgent(llm, prompts)
-    gen = gen_agent.generate(ctx)
-    print("=== GENERATE ===")
-    print(gen)
+    # Create multiple pipelines with slightly different temperatures for diversity
+    temps = [
+        mc.get("temperature", 0.2),
+        min(mc.get("temperature", 0.2) + 0.1, 1.0),
+        min(mc.get("temperature", 0.2) + 0.2, 1.0),
+    ]
 
-    if not is_unified_diff(gen):
-        print("[ERR] not unified diff")
-        return
+    model_cfgs = []
+    for t in temps:
+        cfg = dict(mc)
+        cfg["temperature"] = t
+        model_cfgs.append(cfg)
 
-    # -------------------------------
-    # 6) Linter Agent (qmllint + static fix)
-    # -------------------------------
-    lint_agent = LinterAgent(llm, prompts, config)
-    lint = lint_agent.apply_and_lint(gen)
-    print("\n=== LINT ===")
-    print(lint)
+    pipelines = [
+        AgentPipeline(agent_id=i, project_ctx=ctx, prompts=prompts, config=config, model_cfg=model_cfgs[i])
+        for i in range(3)
+    ]
 
-    static = lint_agent.static_fix(lint)
-    print("\n=== STATIC FIX ===")
-    print(static)
+    # Run pipelines in parallel
+    logger.info("Running 3 agents in parallel...")
+    results = run_agents_in_parallel(pipelines, max_workers=3)
+    logger.info("All agents finished.")
 
-    # -------------------------------
-    # 7) Reviewer Agent
-    # -------------------------------
-    reviewer = ReviewerAgent(llm, prompts)
-    final = reviewer.review(gen, lint, static)
-    print("\n=== FINAL PATCH ===")
-    print(final)
+    logger.info("\n=== INDIVIDUAL RESULTS ===")
+    for r in results:
+        if "error" in r and r["error"]:
+            logger.error(f"[AGENT {r['id']}] ERROR: {r['error']}")
+        else:
+            logger.info(f"\n[AGENT {r['id']}]")
+            logger.info("GEN:\n" + r["gen"][:6000])
+            logger.info("\nLINT:\n" + r["lint"][:4000])
+            logger.info("\nSTATIC:\n" + r["static"][:4000])
+            logger.info("\nFINAL:\n" + r["final"][:6000])
 
-    # -------------------------------
-    # 8) Optionally apply patch
-    # -------------------------------
-    if config["options"]["apply_patch"] and is_unified_diff(final):
-        applied = apply_unified_diff(final)
+    # Reviewer agent for final aggregation
+    # Use a fresh LLM client for the reviewer to avoid any potential state issues
+    agg_llm = LLMClient(
+        base_url=mc["api_base"],
+        api_key=mc["api_key"],
+        model=mc["model"],
+        temperature=mc.get("temperature", 0.2)
+    )
+    final_reviewer = ReviewerAgent(agg_llm, prompts)
+    final_patch = final_reviewer.final_decision(results)
+
+    logger.info("\n=== FINAL PATCH (AGGREGATED) ===")
+    logger.info(final_patch if final_patch else "[EMPTY]")
+
+    # Optionally apply patch
+    if config["options"]["apply_patch"] and is_unified_diff(final_patch):
+        applied = apply_unified_diff(final_patch)
         if applied.get("applied"):
             os.system("git add -A")
-            os.system('git commit -m "agent: apply final QML patch"')
-            print("[OK] committed")
+            os.system('git commit -m "agent: apply final QML patch (3-agent ensemble)"')
+            logger.info("[OK] committed")
         else:
-            print("[ERR] apply failed:", applied)
-
+            logger.error("[ERR] apply failed:", applied)
 
 if __name__ == "__main__":
     main()

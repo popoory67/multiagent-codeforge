@@ -1,64 +1,55 @@
-# main.py
-from pathlib import Path
+# agents/pipeline.py
+# -*- coding: utf-8 -*-
+
 from utils.llm_client import LLMClient
-from utils.project_utils import summarize_project
-from utils.diff_utils import is_unified_diff, apply_unified_diff
 from agents.generator_agent import GenerateAgent
 from agents.linter_agent import LinterAgent
 from agents.reviewer_agent import ReviewerAgent
-import yaml, os
+from utils.logger import setup_logger
 
-def load_yaml(p): return yaml.safe_load(open(p, "r", encoding="utf-8"))
+logger = setup_logger("Pipeline", "Pipeline_")
 
-def main():
-    script = Path(__file__).resolve().parent
-    prompts = load_yaml(script / "config" / "prompts.yaml")
-    config  = load_yaml(script / "config" / "config.yaml")
-    models  = load_yaml(script / "config" / "models.yaml")
+class AgentPipeline:
+    def __init__(self, agent_id: int, project_ctx: str, prompts: dict, config: dict, model_cfg: dict):
+        self.id = agent_id
+        self.project_ctx = project_ctx
+        self.prompts = prompts
+        self.config = config
 
-    mname = models["default_model"]
-    mcfg  = models["models"][mname]
+        self.llm = LLMClient(
+            base_url=model_cfg["api_base"],
+            api_key=model_cfg["api_key"],
+            model=model_cfg["model"],
+            temperature=model_cfg.get("temperature", 0.2),
+        )
 
-    llm = LLMClient(
-        base_url=mcfg["api_base"],
-        api_key=mcfg["api_key"],
-        model=mcfg.get("model", mname),
-        temperature=mcfg.get("temperature", 0.2)
-    )
+        self.gen_agent = GenerateAgent(self.llm, prompts)
+        self.lint_agent = LinterAgent(self.llm, prompts, config)
+        self.reviewer = ReviewerAgent(self.llm, prompts)
+        self.logger = logger
+    
+    def run(self) -> dict:
+            self.logger.info("Starting pipeline", extra={"agent_id": self.id})
 
-    # 1. Summarize
-    ctx = summarize_project(".", tuple(config["project"]["target_exts"]), max_chars=9000)
+            self.logger.info(f"[AGENT {self.id}] Step 1: Generating patch...")
+            gen = self.gen_agent.generate(self.project_ctx)
 
-    # 2. Generate
-    gen_agent = GenerateAgent(llm, prompts)
-    gen = gen_agent.generate(ctx)
-    print("=== GENERATE ===\n", gen)
+            self.logger.info(f"[AGENT {self.id}] Step 2: Running qmllint on generated patch...")
+            lint = self.lint_agent.apply_and_lint(gen)
 
-    if not is_unified_diff(gen):
-        print("[ERR] not unified diff")
-        return
+            self.logger.info(f"[AGENT {self.id}] Step 3: Static fix...")
+            static = self.lint_agent.static_fix(lint)
 
-    # 3. Lint + static fix
-    lint_agent = LinterAgent(llm, prompts, config)
-    lint = lint_agent.apply_and_lint(gen)
-    print("\n=== LINT ===\n", lint)
+            self.logger.info(f"[AGENT {self.id}] Step 4: Reviewer pass...")
+            final = self.reviewer.review(gen, lint, static)
 
-    static_fix = lint_agent.static_fix(lint)
-    print("\n=== STATIC ===\n", static_fix)
-
-    # 4. Review
-    reviewer = ReviewerAgent(llm, prompts)
-    final = reviewer.review(gen, lint, static_fix)
-    print("\n=== FINAL ===\n", final)
-
-    if config["options"]["apply_patch"] and is_unified_diff(final):
-        applied = apply_unified_diff(final)
-        if applied.get("applied"):
-            os.system("git add -A")
-            os.system('git commit -m "agent: apply final QML patch"')
-            print("[OK] committed")
-        else:
-            print("[ERR] apply failed:", applied)
-
-if __name__ == "__main__":
-    main()
+            self.logger.info(f"[AGENT {self.id}] Finished.")
+            self.logger.info("-" * 80)
+        
+            return {
+                "id": self.id,
+                "gen": gen,
+                "lint": lint,
+                "static": static,
+                "final": final,
+            }

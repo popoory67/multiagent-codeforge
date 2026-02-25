@@ -1,6 +1,10 @@
 # utils/project_utils.py
 import os
+import yaml
 
+def load_yaml(p): 
+    return yaml.safe_load(open(p, "r", encoding="utf-8"))
+    
 def summarize_project(root, exts, max_chars=12000):
     buf, total = [], 0
     for dp, _, files in os.walk(root):

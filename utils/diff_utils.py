@@ -2,7 +2,21 @@
 import html
 import tempfile
 import os
+import subprocess
 from unidiff import PatchSet
+from typing import Sequence, Tuple, Optional
+from pathlib import Path
+
+def run_cmd(cmd: Sequence[str], cwd: Optional[str | Path] = ".", timeout: Optional[int] = None) -> Tuple[int, str, str]:
+    p = subprocess.Popen(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    out, err = p.communicate(timeout=timeout)
+    return p.returncode, out, err
 
 def normalize_unified_diff(text: str) -> str:
     if not text:
