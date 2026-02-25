@@ -8,7 +8,7 @@ multi_agents_qml.py
 """
 
 import os
-import sys
+import shutil
 import yaml
 import subprocess
 import tempfile
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict
 from unidiff import PatchSet
 from scripts.install_model import run_model
-from autogen import AssistantAgent, UserProxyAgent
+from autogen import AssistantAgent
 
 ############################################################
 # 1) YAML 로드
@@ -148,12 +148,9 @@ review_agent = AssistantAgent(
     llm_config=llm_config,
 )
 
-user = UserProxyAgent(name="User", code_execution_config=False)
-
 ############################################################
 # 4) 메인 파이프라인
 ############################################################
-
 def main():
 
     TASK_DESCRIPTION = prompts["qmlcoder"]["task_description"]
@@ -162,61 +159,62 @@ def main():
     project_context = summarize_project(".", max_chars=9000)
 
     # === 1단계: 코드 생성 ===
-    try:
-        gen_res = user.initiate_chat(
-            code_agent,
-            message=(
-                f"{TASK_DESCRIPTION}\n\n"
-                f"프로젝트 컨텍스트:\n{project_context}\n\n"
-                f"위 기준에 따라 필요한 패치를 unified diff 형식으로 출력하세요."
-            )
-        )
-    except Exception as e:
-        if "TERMINATING RUN" in str(e):
-            print("[INFO] User terminated chat. Stopping.")
-            sys.exit(0)
-        raise
-    gen_patch = (gen_res.content or "").strip()
+    gen_res = code_agent.run(
+        f"{TASK_DESCRIPTION}\n\n"
+        f"프로젝트 컨텍스트:\n{project_context}\n\n"
+        f"위 기준에 따라 필요한 패치를 unified diff 형식으로 출력하세요."
+    )
+    gen_patch = (gen_res.messages or "").strip()
 
+    print("\n=== CODE GENERATOR PATCH ===\n", gen_patch)
+
+    # === 2단계: 임시 디렉토리에 패치 적용 후 qmllint 실행 ===
+    temp_dir = tempfile.mkdtemp(prefix="qml_agent_")
+    try:
+        for name in os.listdir("."):
+            if name.startswith(".git") or name == os.path.basename(temp_dir):
+                continue
+            src = os.path.join(".", name)
+            dst = os.path.join(temp_dir, name)
+            if os.path.isdir(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dst)
+
+        if gen_patch.startswith(("diff --git", "--- ")):
+            apply_res = apply_unified_diff(gen_patch, repo_root=temp_dir)
+        else:
+            apply_res = {"applied": False, "error": "No diff returned"}
+
+        if apply_res.get("applied"):
+            qmllint_out = run_qmllint([temp_dir])
+        else:
+            qmllint_out = (
+                "패치 적용 실패 → 원본 대상으로 qmllint 실행\n" +
+                run_qmllint(["."])
+            )
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    print("\n=== QMLLINT RESULT ===\n", qmllint_out)
 
     # === 3단계: qmllint 기반 보완 패치 ===
-    static_res = user.initiate_chat(
-        static_agent,
-        message=(
-            "다음은 qmllint 결과입니다. 문제가 되는 부분을 수정하는 diff만 출력하세요.\n\n"
-            f"{qmllint_out}\n"
-        )
+    static_res = static_agent.run(
+        "다음은 qmllint 결과입니다. 문제가 되는 부분을 수정하는 diff만 출력하세요.\n\n"
+        f"{qmllint_out}\n"
     )
-    static_patch = (static_res.content or "").strip()
-
+    static_patch = (static_res.messages or "").strip()
+    print("\n=== STATIC ANALYZER PATCH ===\n", static_patch)
 
     # === 4단계: Reviewer 최종 패치 ===
-    review_res = user.initiate_chat(
-        review_agent,
-        message=(
-            "아래 정보를 종합하여 최종 승인 패치를 unified diff로 출력하세요.\n\n"
-            f"[FITNESS_CRITERIA]\n{FITNESS_CRITERIA}\n\n"
-            f"[GEN_PATCH]\n{gen_patch}\n\n"
-            f"[QMLLINT]\n{qmllint_out}\n\n"
-            f"[STATIC_PATCH]\n{static_patch}\n"
-        )
+    review_res = review_agent.run(
+        f"[FITNESS_CRITERIA]\n{FITNESS_CRITERIA}\n\n"
+        f"[GEN_PATCH]\n{gen_patch}\n\n"
+        f"[QMLLINT]\n{qmllint_out}\n\n"
+        f"[STATIC_PATCH]\n{static_patch}\n"
     )
-    final_patch = (review_res.content or "").strip()
-
-    # 출력
-    print("\n=== CODE GENERATOR PATCH ===\n", gen_patch)
-    print("\n=== STATIC ANALYZER PATCH ===\n", static_patch)
-    print("\n=== FINAL APPROVED PATCH ===\n", final_patch)
-
-    # git 적용 옵션
-    if APPLY_PATCH and final_patch.startswith(("diff --git", "--- ")):
-        apply_res = apply_unified_diff(final_patch)
-        if apply_res.get("applied"):
-            ok, log = git_commit_all("agent: apply final QML patch")
-            print("[INFO] 패치 적용 및 커밋 완료." if ok else f"[WARN] 커밋 실패: {log}")
-        else:
-            print("[ERROR] 적용 실패:", apply_res)
-
+    final_patch = (review_res.messages or "").strip()
+    print("\n=== FINAL PATCH ===\n", final_patch)
 
 if __name__ == "__main__":
     run_model(pull_model=MODEL_NAME, model_dir=OLLAMA_MODEL_DIR)
