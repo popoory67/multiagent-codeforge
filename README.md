@@ -1,15 +1,33 @@
 # Architecture Overview
+```
 project/
- ├─ prompts/
- │   └─ prompts.yaml
+ ├─ agents
+ │   ├─ pipeline.py
+ │   ├─ generator_agent.py
+ │   ├─ linter_agent.py
+ │   ├─ reviewer_agent.py
+ │   └─ base_agent.py
  ├─ config/
- │   │  models.yaml
+ │   ├─ prompts.yaml
+ │   ├─ models.yaml
  │   └─ config.yaml
- ├─ multi_agents_qml.py
+ ├─ utils/
+ │   ├─ install_model.py
+ │   ├─ llm_client.py
+ │   ├─ async_executor.py
+ │   ├─ project_utils.py
+ │   ├─ qml_utils.py
+ │   ├─ diff_utils.py
+ │   └─ logger.py
+ ├─ run_all.py
+ ├─ pipeline.md
  └─ README.md
+```
 
 ## Processing
-Agent.generate() / Agent.lint() / Agent.static_fix() ...
+Agent.generate()
+Agent.lint()
+Agent.static_fix() ...
       ↓
 BaseAgent.chat(system, user)
       ↓
