@@ -1,0 +1,22 @@
+model:
+  name: llama3.1:8b
+  api_base: http://localhost:11434/v1
+  api_key: local
+  temperature: 0.2
+
+ollama:
+  model_dir: "C:/Users/castl/.ollama/models"
+  bin_dir: "C:/Users/castl/AppData/Local/Programs/Ollama"
+
+tools:
+  qmllint_path: "D:/Qt/6.8.3/mingw_64/bin/qmllint.exe"
+
+project:
+  target_exts:
+    - .qml
+    - .js
+    - .mjs
+    - .qmltypes
+
+options:
+  apply_patch: false
