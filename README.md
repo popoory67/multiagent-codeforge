@@ -25,6 +25,7 @@ project/
 ```
 
 ## Processing
+```
 Agent.generate()
 Agent.lint()
 Agent.static_fix() ...
@@ -34,6 +35,7 @@ BaseAgent.chat(system, user)
 LLMClient.chat(messages, ...)
       ↓
 OpenAI streaming
+```
 
 ## Prerequisite
 ```
