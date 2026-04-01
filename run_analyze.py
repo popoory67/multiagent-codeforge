@@ -7,6 +7,7 @@ and optionally use LLM to summarize each module's purpose/status.
 
 import os
 import sys
+import subprocess
 import json
 import asyncio
 import hashlib
@@ -14,11 +15,33 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-from utils.qml_parser import parse_qml_file
-from utils.project_utils import load_yaml
-from utils.llm_client import LLMClient
-from utils.async_executor import run_async_jobs
-from utils.logger import setup_logger
+
+def _ensure_packages(use_llm: bool = False):
+    missing = []
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        missing.append("pyyaml")
+    if use_llm:
+        try:
+            import openai  # noqa: F401
+        except ImportError:
+            missing.append("openai")
+    if missing:
+        print(f"Installing missing packages: {', '.join(missing)}")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
+
+
+_use_llm = "--no-llm" not in sys.argv
+_ensure_packages(use_llm=_use_llm)
+
+from utils.qml_parser import parse_qml_file  # noqa: E402
+from utils.project_utils import load_yaml  # noqa: E402
+from utils.logger import setup_logger  # noqa: E402
+
+if _use_llm:
+    from utils.llm_client import LLMClient  # noqa: E402
+    from utils.async_executor import run_async_jobs  # noqa: E402
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 logger = setup_logger("Analyze", "Analyze_")
@@ -195,19 +218,36 @@ async def analyze(target_root: str, use_llm: bool = True):
         "modules": module_data,
     }
 
-    # Save JSON
-    os.makedirs("analysis", exist_ok=True)
+    # Save per-module MD + JSON
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    json_path = os.path.join("analysis", f"analysis_{timestamp}.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-    logger.info(f"[SAVE] JSON → {json_path}")
+    out_root = os.path.join("analysis", timestamp)
+    os.makedirs(out_root, exist_ok=True)
 
-    # Save MD
-    md_path = os.path.join("analysis", f"analysis_{timestamp}.md")
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(render_markdown(report))
-    logger.info(f"[SAVE] MD   → {md_path}")
+    for mod in module_data:
+        safe_name = mod["path"].replace(os.sep, "_").replace("/", "_")
+        if safe_name == ".":
+            safe_name = "_root"
+
+        mod_dir = os.path.join(out_root, safe_name)
+        os.makedirs(mod_dir, exist_ok=True)
+
+        # JSON
+        json_path = os.path.join(mod_dir, f"{safe_name}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(mod, f, ensure_ascii=False, indent=2)
+
+        # MD
+        md_path = os.path.join(mod_dir, f"{safe_name}.md")
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(render_module_markdown(mod, report))
+
+        logger.info(f"[SAVE] {mod['path']} → {mod_dir}")
+
+    # Summary index
+    index_path = os.path.join(out_root, "index.md")
+    with open(index_path, "w", encoding="utf-8") as f:
+        f.write(render_index_markdown(report))
+    logger.info(f"[SAVE] Index → {index_path}")
 
     return report
 
@@ -215,7 +255,58 @@ async def analyze(target_root: str, use_llm: bool = True):
 # 5. Markdown renderer
 # ---------------------------------------------------------------------------
 
-def render_markdown(report: dict) -> str:
+def render_module_markdown(mod: dict, report: dict) -> str:
+    status = mod.get("status", "unknown")
+    lines = [
+        f"# `{mod['path']}`  [{status}]",
+        f"",
+        f"- **Project**: {report['project']}",
+        f"- **Date**: {report['analyzed_at']}",
+        f"",
+    ]
+
+    summary = mod.get("summary", "")
+    if summary:
+        lines.append(f"> {summary}")
+        lines.append(f"")
+
+    lines.append(f"Files ({mod['file_count']}): "
+                  + ", ".join(f"`{fi['file']}`" for fi in mod["files"]))
+    lines.append(f"")
+
+    if mod["functions"]:
+        lines.append(f"## Functions")
+        for fn in mod["functions"]:
+            params = fn.get("params", "")
+            ret = f" : {fn['return_type']}" if fn.get("return_type") else ""
+            lines.append(f"- `{fn['name']}({params}){ret}` — {fn.get('defined_in', '')}")
+        lines.append(f"")
+
+    if mod["signals"]:
+        lines.append(f"## Signals")
+        for sig in mod["signals"]:
+            p = f"({sig['params']})" if sig.get("params") else ""
+            lines.append(f"- `{sig['name']}{p}` — {sig.get('defined_in', '')}")
+        lines.append(f"")
+
+    if mod["properties"]:
+        lines.append(f"## Properties")
+        for prop in mod["properties"]:
+            q = f"[{prop['qualifier']}] " if prop.get("qualifier") else ""
+            lines.append(f"- {q}`{prop['type']} {prop['name']}` — {prop.get('defined_in', '')}")
+        lines.append(f"")
+
+    issues = mod.get("issues", [])
+    if issues:
+        lines.append(f"## Issues")
+        for issue in issues:
+            lines.append(f"- {issue}")
+        lines.append(f"")
+
+    return "\n".join(lines)
+
+
+def render_index_markdown(report: dict) -> str:
     lines = [
         f"# Project Analysis: {report['project']}",
         f"",
@@ -223,51 +314,20 @@ def render_markdown(report: dict) -> str:
         f"- **Root**: `{report['root']}`",
         f"- **Modules**: {report['module_count']}",
         f"",
+        f"| Module | Files | Functions | Signals | Properties | Status |",
+        f"|--------|------:|----------:|--------:|-----------:|--------|",
     ]
 
     for mod in report["modules"]:
         status = mod.get("status", "unknown")
-        lines.append(f"---")
-        lines.append(f"## `{mod['path']}`  [{status}]")
-        lines.append(f"")
-
-        summary = mod.get("summary", "")
-        if summary:
-            lines.append(f"> {summary}")
-            lines.append(f"")
-
-        lines.append(f"Files ({mod['file_count']}): "
-                      + ", ".join(f"`{fi['file']}`" for fi in mod["files"]))
-        lines.append(f"")
-
-        if mod["functions"]:
-            lines.append(f"### Functions")
-            for fn in mod["functions"]:
-                params = fn.get("params", "")
-                ret = f" : {fn['return_type']}" if fn.get("return_type") else ""
-                lines.append(f"- `{fn['name']}({params}){ret}` — {fn.get('defined_in', '')}")
-            lines.append(f"")
-
-        if mod["signals"]:
-            lines.append(f"### Signals")
-            for sig in mod["signals"]:
-                p = f"({sig['params']})" if sig.get("params") else ""
-                lines.append(f"- `{sig['name']}{p}` — {sig.get('defined_in', '')}")
-            lines.append(f"")
-
-        if mod["properties"]:
-            lines.append(f"### Properties")
-            for prop in mod["properties"]:
-                q = f"[{prop['qualifier']}] " if prop.get("qualifier") else ""
-                lines.append(f"- {q}`{prop['type']} {prop['name']}` — {prop.get('defined_in', '')}")
-            lines.append(f"")
-
-        issues = mod.get("issues", [])
-        if issues:
-            lines.append(f"### Issues")
-            for issue in issues:
-                lines.append(f"- {issue}")
-            lines.append(f"")
+        safe_name = mod["path"].replace(os.sep, "_").replace("/", "_")
+        if safe_name == ".":
+            safe_name = "_root"
+        link = f"[{mod['path']}]({safe_name}/{safe_name}.md)"
+        lines.append(
+            f"| {link} | {mod['file_count']} | {len(mod['functions'])} "
+            f"| {len(mod['signals'])} | {len(mod['properties'])} | {status} |"
+        )
 
     return "\n".join(lines)
 
