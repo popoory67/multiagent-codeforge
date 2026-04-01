@@ -21,6 +21,7 @@ class BaseAgent:
         self.project_ctx = project_ctx
         self.config = config or {}
         self.agent_id = agent_id
+        self.logger = None
 
     def chat(self, 
              system: str, 

@@ -1,5 +1,5 @@
 # run/run_all.py
-import os
+import subprocess
 import asyncio
 from pathlib import Path
 
@@ -82,8 +82,17 @@ async def run_full_pipeline():
     if config["options"]["apply_patch"] and is_unified_diff(final_patch):
         applied = apply_unified_diff(final_patch)
         if applied.get("applied"):
-            os.system("git add -A")
-            os.system('git commit -m "agent: apply final QML patch (3-agent ensemble)"')
+            add_result = subprocess.run(["git", "add", "-A"], capture_output=True, text=True)
+            if add_result.returncode != 0:
+                logger.error(f"[ERR] git add failed: {add_result.stderr}")
+                return
+            commit_result = subprocess.run(
+                ["git", "commit", "-m", "agent: apply final QML patch (3-agent ensemble)"],
+                capture_output=True, text=True
+            )
+            if commit_result.returncode != 0:
+                logger.error(f"[ERR] git commit failed: {commit_result.stderr}")
+                return
             logger.info("[OK] committed")
         else:
             logger.error(f"[ERR] apply failed: {applied}")

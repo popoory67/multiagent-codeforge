@@ -18,9 +18,11 @@ class AgentPipeline:
             model_cfg: dict,
             generated_patch: str,
             project_ctx: dict,
+            logger=None,
         ):
 
         self.id = agent_id
+        self.logger = logger or setup_logger(f"Pipeline-{agent_id}", f"Pipeline_{agent_id}_")
         self.prompts = prompts
         self.config = config
         self.model_cfg = model_cfg
@@ -41,30 +43,33 @@ class AgentPipeline:
             prompts=prompts,
             project_ctx=project_ctx,
             config=config,
-            agent_id="GEN-0"
+            agent_id=f"GEN-{agent_id}"
         )
+        self.gen_agent.logger = self.logger
 
         self.lint_agent = LinterAgent(
             llm=self.llm,
             prompts=prompts,
             project_ctx=project_ctx,
             config=config,
-            agent_id="LINT-0"
+            agent_id=f"LINT-{agent_id}"
         )
+        self.lint_agent.logger = self.logger
 
         self.reviewer_agent = ReviewerAgent(
             llm=self.llm,
             prompts=prompts,
             project_ctx=project_ctx,
             config=config,
-            agent_id="REVIEW-0"
+            agent_id=f"REVIEW-{agent_id}"
         )
+        self.reviewer_agent.logger = self.logger
         
     def run(self) -> dict:
-        self.logger.info("Starting pipeline", extra={"agent_id": self.agent_id})
+        self.logger.info(f"[AGENT {self.id}] Starting pipeline")
 
-        self.logger.info(f"[AGENT {self.id}] Step 1: Generating patch...")
-        gen = self.gen_agent.generate(self.project_ctx)
+        gen = self.generated_patch
+        self.logger.info(f"[AGENT {self.id}] Step 1: Using pre-generated patch")
 
         self.logger.info(f"[AGENT {self.id}] Step 2: Running qmllint on generated patch...")
         lint = self.lint_agent.apply_and_lint(gen)
@@ -73,7 +78,7 @@ class AgentPipeline:
         static = self.lint_agent.static_fix(lint)
 
         self.logger.info(f"[AGENT {self.id}] Step 4: Reviewer pass...")
-        final = self.reviewer.review(gen, lint, static)
+        final = self.reviewer_agent.review(gen, lint, static)
 
         self.logger.info(f"[AGENT {self.id}] Finished.")
         self.logger.info("-" * 80)
