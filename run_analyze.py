@@ -82,6 +82,7 @@ def analyze_module_static(module_path: str, files: list[str]) -> dict:
     all_functions = []
     all_signals = []
     all_properties = []
+    all_bindings = []
     all_children = set()
 
     for f in sorted(files):
@@ -97,6 +98,9 @@ def analyze_module_static(module_path: str, files: list[str]) -> dict:
             for prop in info["properties"]:
                 prop["defined_in"] = info["file"]
                 all_properties.append(prop)
+            for bind in info.get("bindings", []):
+                bind["defined_in"] = info["file"]
+                all_bindings.append(bind)
             all_children.update(info["children"])
         except Exception as e:
             logger.warning(f"[PARSE] Failed {f}: {e}")
@@ -108,6 +112,7 @@ def analyze_module_static(module_path: str, files: list[str]) -> dict:
         "functions": all_functions,
         "signals": all_signals,
         "properties": all_properties,
+        "bindings": all_bindings,
         "child_components": sorted(all_children),
     }
 
@@ -294,6 +299,12 @@ def render_module_markdown(mod: dict, report: dict) -> str:
         for prop in mod["properties"]:
             q = f"[{prop['qualifier']}] " if prop.get("qualifier") else ""
             lines.append(f"- {q}`{prop['type']} {prop['name']}` — {prop.get('defined_in', '')}")
+        lines.append(f"")
+
+    if mod.get("bindings"):
+        lines.append(f"## Bindings")
+        for bind in mod["bindings"]:
+            lines.append(f"- `{bind['key']}`: {bind['value']} — {bind.get('defined_in', '')}")
         lines.append(f"")
 
     issues = mod.get("issues", [])

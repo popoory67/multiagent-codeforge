@@ -46,9 +46,44 @@ def _table_to_md(table):
     return rows[0] + "\n" + separator + "\n" + "\n".join(rows[1:])
 
 
-def docx_to_md(docx_path):
+def _extract_paragraph_images(para, doc, images_dir, img_counter, img_rel_path=""):
+    """Extract inline images from a paragraph, save them, return md refs."""
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    dns = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    rns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+    blip_ns = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+
+    refs = []
+    for run in para.runs:
+        drawings = run._element.findall(f".//{ns}drawing")
+        for drawing in drawings:
+            for blip in drawing.iter(f"{dns}blip"):
+                embed = blip.get(f"{rns}embed")
+                if not embed:
+                    continue
+                rel = doc.part.rels.get(embed)
+                if rel is None:
+                    continue
+                image_blob = rel.target_part.blob
+                content_type = rel.target_part.content_type
+                ext_map = {
+                    "image/png": ".png", "image/jpeg": ".jpg",
+                    "image/gif": ".gif", "image/bmp": ".bmp",
+                    "image/tiff": ".tiff", "image/svg+xml": ".svg",
+                }
+                ext = ext_map.get(content_type, ".png")
+                img_name = f"image_{img_counter[0]:03d}{ext}"
+                img_counter[0] += 1
+                img_path = images_dir / img_name
+                img_path.write_bytes(image_blob)
+                refs.append(f"![{img_name}]({img_rel_path}/{img_name})")
+    return refs
+
+
+def docx_to_md(docx_path, images_dir=None, img_rel_path=""):
     doc = Document(docx_path)
     lines = []
+    img_counter = [1]  # mutable counter shared across calls
 
     # Build a set of table element refs so we can insert them inline
     table_elements = {tbl._element: tbl for tbl in doc.tables}
@@ -67,9 +102,18 @@ def docx_to_md(docx_path):
             if para is None:
                 continue
 
+            # Extract images from this paragraph
+            if images_dir:
+                img_refs = _extract_paragraph_images(para, doc, images_dir, img_counter, img_rel_path)
+                for ref in img_refs:
+                    lines.append(ref)
+
             text = para.text.strip()
             if not text:
-                continue
+                if not (images_dir and img_refs):
+                    continue
+                else:
+                    continue
 
             level = _heading_level(para)
             if level:

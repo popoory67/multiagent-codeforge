@@ -1,5 +1,5 @@
 # utils/qml_parser.py
-"""Lightweight QML file parser — extracts functions, signals, properties, and child components."""
+"""Lightweight QML file parser — extracts functions, signals, properties, bindings, and child components."""
 
 import re
 from pathlib import Path
@@ -11,6 +11,7 @@ def parse_qml_file(filepath: str) -> dict:
     functions = []
     signals = []
     properties = []
+    bindings = []
     children = set()
 
     # Root component (first top-level Type { )
@@ -40,6 +41,31 @@ def parse_qml_file(filepath: str) -> dict:
             "name": m.group(3),
         })
 
+    # Property bindings: key: value (inside component body)
+    # Match lines like:  name: "something"  /  screenId: "F_53"  /  priority: 1
+    # Skip import lines, function bodies, and nested objects
+    for m in re.finditer(
+        r'^\s+(\w+)\s*:\s*(.+?)$', text, re.MULTILINE
+    ):
+        key = m.group(1)
+        value = m.group(2).strip()
+        # Skip known QML structural keywords and signal handlers
+        if key in ('id', 'anchors', 'x', 'y', 'z', 'width', 'height',
+                   'visible', 'enabled', 'opacity', 'clip', 'focus',
+                   'Layout', 'left', 'right', 'top', 'bottom',
+                   'horizontalCenter', 'verticalCenter', 'fill',
+                   'margins', 'leftMargin', 'rightMargin',
+                   'topMargin', 'bottomMargin', 'centerIn',
+                   'source', 'color', 'radius', 'border'):
+            continue
+        # Skip signal handlers (onXxx)
+        if key.startswith('on') and len(key) > 2 and key[2].isupper():
+            continue
+        bindings.append({
+            "key": key,
+            "value": value.rstrip(';'),
+        })
+
     # Child components: CapitalizedWord {  (excluding root)
     for m in re.finditer(r'^\s+([A-Z]\w+)\s*\{', text, re.MULTILINE):
         children.add(m.group(1))
@@ -50,5 +76,6 @@ def parse_qml_file(filepath: str) -> dict:
         "functions": functions,
         "signals": signals,
         "properties": properties,
+        "bindings": bindings,
         "children": sorted(children),
     }

@@ -116,9 +116,13 @@ class CompareJob:
         self.llm = llm
 
     def run(self):
+        # Truncate inputs to fit in LLM context (llama3.1:8b = ~8k tokens)
+        max_chars = 3000
+        spec = self.spec_text[:max_chars] + ("..." if len(self.spec_text) > max_chars else "")
+        analysis = self.analysis_text[:max_chars] + ("..." if len(self.analysis_text) > max_chars else "")
         user_msg = (
-            f"## Spec\n\n{self.spec_text}\n\n"
-            f"## Analysis\n\n{self.analysis_text}"
+            f"## Spec\n\n{spec}\n\n"
+            f"## Analysis\n\n{analysis}"
         )
         messages = [
             {"role": "system", "content": self.prompt},
@@ -235,21 +239,28 @@ def render_compare_md(spec_name: str, result: dict) -> str:
         f"",
     ]
 
-    impl = result.get("implemented", [])
+    def _flatten(val):
+        if isinstance(val, list):
+            return [str(v) for v in val]
+        if isinstance(val, str):
+            return [val] if val else []
+        return [str(val)] if val else []
+
+    impl = _flatten(result.get("implemented", []))
     if impl:
         lines.append("## Implemented")
         for item in impl:
             lines.append(f"- {item}")
         lines.append("")
 
-    missing = result.get("missing", [])
+    missing = _flatten(result.get("missing", []))
     if missing:
         lines.append("## Missing")
         for item in missing:
             lines.append(f"- {item}")
         lines.append("")
 
-    extra = result.get("extra", [])
+    extra = _flatten(result.get("extra", []))
     if extra:
         lines.append("## Extra (not in spec)")
         for item in extra:
@@ -259,7 +270,7 @@ def render_compare_md(spec_name: str, result: dict) -> str:
     notes = result.get("notes", "")
     if notes:
         lines.append("## Notes")
-        lines.append(notes)
+        lines.append(str(notes))
         lines.append("")
 
     return "\n".join(lines)
