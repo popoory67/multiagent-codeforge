@@ -148,6 +148,17 @@ def compare(old_path: Path, new_path: Path, sheet_name: str, header_row: int,
     lines.append(f"Changed: {n_changed} / Added: {n_added} / Deleted: {n_deleted} / Unchanged: {len(common) - n_changed}")
     lines.append("")
 
+    # Table of contents
+    lines.append("## Table of Contents")
+    lines.append("")
+    if any(r[3] == "Changed" for r in table_rows):
+        lines.append(f"- [Changed ({n_changed})](#changed)")
+    if any(r[3] == "Added" for r in table_rows):
+        lines.append(f"- [Added ({n_added})](#added)")
+    if any(r[3] == "Deleted" for r in table_rows):
+        lines.append(f"- [Deleted ({n_deleted})](#deleted)")
+    lines.append("")
+
     if table_rows:
         left_hdr = " | ".join(_esc(h) for h in left_headers)
         header_line = f"| Old Row | New Row | {left_hdr} | Status | Column | Old | New |"
