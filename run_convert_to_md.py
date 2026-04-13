@@ -1,5 +1,5 @@
 """
-This script converts all .docx, .pdf, and .xlsx files in a specified folder to .md format.
+This script converts all .docx and .pdf files in a specified folder to .md format.
 
 Usage:
     python run_convert_to_md.py <input_folder> [-o <output_folder>]
@@ -24,10 +24,6 @@ def _ensure_packages():
         import pymupdf  # noqa: F401
     except ImportError:
         missing.append("pymupdf")
-    try:
-        import openpyxl  # noqa: F401
-    except ImportError:
-        missing.append("openpyxl")
     if missing:
         print(f"Installing missing packages: {', '.join(missing)}")
         subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
@@ -37,7 +33,6 @@ _ensure_packages()
 
 from utils.docx_reader import docx_to_md  # noqa: E402
 import pymupdf  # noqa: E402
-from openpyxl import load_workbook  # noqa: E402
 
 
 def _table_to_md(table: list[list]) -> str:
@@ -53,33 +48,6 @@ def _table_to_md(table: list[list]) -> str:
     sep = "| " + " | ".join(["---"] * len(table[0])) + " |"
     return rows[0] + "\n" + sep + "\n" + "\n".join(rows[1:])
 
-
-def xlsx_to_md(xlsx_path: Path) -> str:
-    wb = load_workbook(str(xlsx_path), read_only=True, data_only=True)
-    sections = []
-    for sheet in wb.worksheets:
-        rows = []
-        for row in sheet.iter_rows(values_only=True):
-            cells = [str(c).strip().replace("\n", " ").replace("|", "\\|") if c is not None else "" for c in row]
-            rows.append(cells)
-        if not rows:
-            continue
-        # Drop fully empty trailing rows
-        while rows and all(c == "" for c in rows[-1]):
-            rows.pop()
-        if not rows:
-            continue
-        col_count = max(len(r) for r in rows)
-        lines = [f"## {sheet.title}", ""]
-        for i, row in enumerate(rows):
-            # Pad rows to consistent column count
-            padded = row + [""] * (col_count - len(row))
-            lines.append("| " + " | ".join(padded) + " |")
-            if i == 0:
-                lines.append("| " + " | ".join(["---"] * col_count) + " |")
-        sections.append("\n".join(lines))
-    wb.close()
-    return "\n\n".join(sections)
 
 
 def pdf_to_md(pdf_path: Path, images_dir: Path | None = None, img_rel_path: str = "") -> str:
@@ -172,8 +140,6 @@ def convert_file(src: Path, out_dir: Path | None) -> Path:
         md = docx_to_md(src, images_dir=images_dir, img_rel_path=f"images/{img_id}")
     elif ext == ".pdf":
         md = pdf_to_md(src, images_dir=images_dir, img_rel_path=f"images/{img_id}")
-    elif ext in (".xlsx", ".xlsm"):
-        md = xlsx_to_md(src)
     else:
         raise ValueError(f"Unsupported format: {ext}")
 
@@ -188,7 +154,7 @@ def convert_file(src: Path, out_dir: Path | None) -> Path:
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
 
-    parser = argparse.ArgumentParser(description="Convert docx/pdf/xlsx files in a folder to md format")
+    parser = argparse.ArgumentParser(description="Convert docx/pdf files in a folder to md format")
     parser.add_argument("input_folder", help="Path to the folder containing files to convert")
     parser.add_argument("-o", "--output", help="Output folder (if not specified, files will be saved in the same location)")
     parser.add_argument("-b", "--blacklist", nargs="*", default=[], help="Directory names to exclude from conversion")
@@ -204,14 +170,14 @@ def main():
 
     files = sorted(
         f for f in src_dir.rglob("*")
-        if f.suffix.lower() in (".docx", ".pdf", ".xlsx", ".xlsm")
+        if f.suffix.lower() in (".docx", ".pdf")
         and not f.name.startswith("~")
         and not any(bl in part for bl in blacklist for part in f.relative_to(src_dir).parts)
         and not any(bl in f.name for bl in blacklist)
     )
 
     if not files:
-        print("No docx/pdf/xlsx files to convert.")
+        print("No docx/pdf files to convert.")
         sys.exit(0)
 
     print(f"Total {len(files)} files conversion started\n")
