@@ -46,8 +46,6 @@ multiagent-test/
 │   └── analyze.md              # System prompt for QML module summarization
 ├── specs/                      # Specification documents (Markdown)
 ├── data/                       # Excel files for xlsx comparison
-├── ci/                         # CI/CD configuration
-│   └── ci.yml
 ├── scripts/                    # Entry point scripts
 │   ├── run_gap_analysis.py     # ★ Main: end-to-end gap analysis orchestrator
 │   ├── run_generate_prompts.py # Generate prompts/compare.md via llama
