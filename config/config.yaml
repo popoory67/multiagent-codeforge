@@ -21,3 +21,15 @@ project:
 
 options:
   apply_patch: false
+
+spec:
+  # Section headings that contain behavioral requirements (used for gap analysis chunking)
+  behavior_headings:
+    - "基本動作"
+    - "動作"
+  # Section headings to skip (e.g. large input/signal tables with no behavior logic)
+  skip_headings:
+    - "入力"
+  # Spec file prefixes to exclude (e.g. changelog files)
+  exclude_prefixes:
+    - "変更履歴"

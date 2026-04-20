@@ -162,13 +162,16 @@ def _aggregate_section_results(results: list[dict]) -> dict:
 
 class CompareJob:
     def __init__(self, job_id: int, spec_name: str, spec_text: str,
-                 analysis_text: str, prompt: str, llm: LLMClient):
+                 analysis_text: str, prompt: str, llm: LLMClient,
+                 behavior_headings: list = None, skip_headings: list = None):
         self.id = job_id
         self.spec_name = spec_name
         self.spec_text = spec_text
         self.analysis_text = analysis_text
         self.prompt = prompt
         self.llm = llm
+        self.behavior_headings = behavior_headings or []
+        self.skip_headings = skip_headings or []
 
     def _run_section(self, heading: str, spec_content: str) -> dict:
         """Run LLM comparison for a single spec section."""
@@ -191,12 +194,14 @@ class CompareJob:
                     "extra": [], "notes": raw.strip()[:200]}
 
     def run(self):
-        # Split spec into sections; focus on 基本動作 (behavior) sections
+        # Split spec into sections; focus on behavior sections (headings configured in config.yaml)
         sections = _split_spec_sections(self.spec_text)
-        behavior = [s for s in sections if "基本動作" in s["heading"] or "動作" in s["heading"]]
+        behavior = [s for s in sections
+                    if any(kw in s["heading"] for kw in self.behavior_headings)]
         if not behavior:
-            # Fall back: skip 入力 (huge CAN tables), use remaining sections
-            behavior = [s for s in sections if "入力" not in s["heading"]][:5]
+            # Fall back: skip input/signal table sections, use remaining
+            behavior = [s for s in sections
+                        if not any(kw in s["heading"] for kw in self.skip_headings)][:5]
         if not behavior:
             behavior = sections[:5]
 
@@ -222,6 +227,11 @@ async def compare(analysis_dir: str, output_dir: str):
     # Load config
     mappings = load_compare_map()
     prompt = load_prompt()
+
+    config = load_yaml(SCRIPT_DIR / "config" / "config.yaml")
+    spec_cfg = config.get("spec", {})
+    behavior_headings = spec_cfg.get("behavior_headings", [])
+    skip_headings = spec_cfg.get("skip_headings", [])
 
     models = load_yaml(SCRIPT_DIR / "config" / "models.yaml")
     default = models["default_model"]
@@ -249,7 +259,9 @@ async def compare(analysis_dir: str, output_dir: str):
         analysis_text = load_analysis_modules(analysis_path, module_names)
         spec_name = Path(spec_path).stem
 
-        jobs.append(CompareJob(i, spec_name, spec_text, analysis_text, prompt, llm))
+        jobs.append(CompareJob(i, spec_name, spec_text, analysis_text, prompt, llm,
+                               behavior_headings=behavior_headings,
+                               skip_headings=skip_headings))
         logger.info(f"[JOB] {spec_name} ↔ {module_names}")
 
     if not jobs:

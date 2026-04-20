@@ -303,10 +303,11 @@ def main():
         print(f"Analysis directory not found: {analysis_dir}")
         sys.exit(1)
 
-    # Collect spec files (skip changelog files)
+    # Collect spec files (skip excluded prefixes defined in config.yaml spec.exclude_prefixes)
+    exclude = load_yaml(SCRIPT_DIR / "config" / "config.yaml").get("spec", {}).get("exclude_prefixes", [])
     spec_files = sorted(
         f for f in specs_dir.glob("*.md")
-        if not f.stem.startswith("変更履歴")
+        if not any(f.stem.startswith(p) for p in exclude)
     )
     logger.info(f"[SCAN] {len(spec_files)} spec files")
 

@@ -13,7 +13,7 @@ class ReviewerAgent(BaseAgent):
             f"[GEN]\n{gen}\n\n"
             f"[LINT]\n{lint}\n\n"
             f"[STATIC]\n{static}\n\n"
-            "최종 승인된 unified diff만 출력."
+            "Output the final approved unified diff ONLY."
         )
 
         raw = self.chat(system, user)
@@ -37,7 +37,7 @@ class ReviewerAgent(BaseAgent):
         user = (
             f"[FITNESS]\n{fit}\n\n"
             + "\n".join(body)
-            + "\n위 결과 중 품질/정합성이 가장 높은 하나의 unified diff만 출력."
+            + "\nFrom the results above, output the single unified diff with the highest quality and correctness."
         )
 
         raw = self.chat(system, user, stream_log=True, log_lines=False, batch_size=10)

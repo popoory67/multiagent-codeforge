@@ -60,10 +60,9 @@ class LinterAgent(BaseAgent):
     def static_fix(self, lint_output: str) -> str:
         system = self.prompts["static_analyzer"]["system"]
         user = (
-            "다음은 qmllint의 출력입니다. 문제가 있는 부분만 "
-            "정확하게 수정하는 unified diff를 생성하세요.\n\n"
+            "Below is the qmllint output. Generate a unified diff that fixes only the reported issues.\n\n"
             f"[QMLLINT]\n{lint_output}\n"
-            "출력은 unified diff ONLY."
+            "Output unified diff ONLY."
         )
         raw = self.chat(system, user, stream_log=False, log_lines=False)
         return raw

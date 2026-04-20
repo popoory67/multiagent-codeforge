@@ -44,7 +44,7 @@ def ollama_installed():
     return shutil.which("ollama") is not None
 
 # ----------------------------------------------------------
-# Windows PATH 자동 보정
+# Windows PATH auto-correction
 # ----------------------------------------------------------
 
 def add_windows_ollama_to_path():
@@ -64,7 +64,7 @@ def add_windows_ollama_to_path():
 
 
 # ----------------------------------------------------------
-# 서버 확인 / 자동 기동
+# Server check / auto-start
 # ----------------------------------------------------------
 
 def wait_for_server(timeout_sec=20, sleep_sec=1):
@@ -74,7 +74,7 @@ def wait_for_server(timeout_sec=20, sleep_sec=1):
             try:
                 req = Request(url, headers={"User-Agent": "curl/8.0"})
                 with urlopen(req, timeout=2) as resp:
-                    # HTTPResponse.status는 3.9+에서 사용 가능
+                    # HTTPResponse.status available in Python 3.9+
                     status = getattr(resp, "status", None) or resp.getcode()
                     if status in (200, 401, 403):
                         print(f"[OK] Server response: {url} -> {status}")
@@ -109,7 +109,7 @@ def start_server_best_effort():
 
 
 # ----------------------------------------------------------
-# OS별 설치
+# OS-specific installation
 # ----------------------------------------------------------
 
 def install_on_windows():
@@ -125,24 +125,24 @@ def install_on_windows():
 
 def install_on_macos():
     if not which("brew"):
-        raise RuntimeError("Homebrew가 필요합니다. https://brew.sh")
+        raise RuntimeError("Homebrew is required. https://brew.sh")
     run(["brew", "install", "ollama"])
     run(["brew", "services", "start", "ollama"], check=False)
 
 
 def install_on_linux():
     if not which("curl"):
-        raise RuntimeError("curl이 없습니다. 설치 후 다시 시도하세요.")
+        raise RuntimeError("curl is not installed. Please install it and try again.")
     run("curl -fsSL https://ollama.com/install.sh | sh", shell=True)
 
 
 # ----------------------------------------------------------
-# 최종 install_ollama 함수 (IMPORT SAFE)
+# Main install_ollama function (import safe)
 # ----------------------------------------------------------
 def model_exists(model_name: str, model_dir: Path) -> bool:
     """
-    모델 디렉토리를 기반으로 파일 존재 여부를 체크.
-    Ollama는 'llama3.1:8b' → 'llama3.1_8b' 형태로 디렉토리 생성함.
+    Check if a model directory exists.
+    Ollama creates directories like 'llama3.1:8b' → 'llama3.1_8b'.
     """
     safe_name = model_name.replace(":", "_")
     model_path = model_dir / safe_name
@@ -153,7 +153,7 @@ def run_model(pull_model=None, model_dir=None, check_only=False):
     if model_dir is None:
         raise ValueError("model_dir must be provided (from YAML).")
 
-    # Ollama 설치 여부 확인 (설치 재시도 X)
+    # Check Ollama installation (no re-install attempt)
     if not ollama_installed():
         print("[ERROR] Ollama not installed. Please install manually.")
         return False
@@ -168,7 +168,7 @@ def run_model(pull_model=None, model_dir=None, check_only=False):
             print("[ERROR] Server still not responding.")
             return False
 
-    # 모델 확인
+    # Check and pull model if needed
     if pull_model:
         if model_exists(pull_model, model_dir):
             print(f"[INFO] Model already exists: {pull_model}")

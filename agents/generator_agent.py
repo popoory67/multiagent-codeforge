@@ -13,8 +13,8 @@ class GenerateAgent(BaseAgent):
 
         user = (
             f"{task}\n\n"
-            f"프로젝트 컨텍스트:\n{project_ctx}\n\n"
-            "출력은 unified diff ONLY. 설명 금지."
+            f"Project context:\n{project_ctx}\n\n"
+            "Output unified diff ONLY. No explanations."
         )
 
         raw = self.chat(system, user, stream_log=True, log_lines=False, batch_size=20)

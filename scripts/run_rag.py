@@ -204,7 +204,9 @@ def cmd_compare(output_dir: str, specs_dir: str = None):
         specs_col = store.get_or_create_collection("specs")
         all_specs = specs_col.get(include=["metadatas"])
         spec_sources = sorted(set(m["source"] for m in all_specs["metadatas"]))
-        spec_sources = [s for s in spec_sources if not s.startswith("変更履歴")]
+        config = load_yaml(SCRIPT_DIR / "config" / "config.yaml")
+        exclude = config.get("spec", {}).get("exclude_prefixes", [])
+        spec_sources = [s for s in spec_sources if not any(s.startswith(p) for p in exclude)]
         spec_files = [SCRIPT_DIR / "specs" / s for s in spec_sources]
 
     out_path = Path(output_dir)
@@ -222,10 +224,14 @@ def cmd_compare(output_dir: str, specs_dir: str = None):
 
         # Split spec into sections, focus on 基本動作 (behavior) sections
         sections = _extract_spec_sections(spec_file)
-        behavior_sections = [s for s in sections if "基本動作" in s["heading"] or "動作" in s["heading"]]
+        cfg = load_yaml(SCRIPT_DIR / "config" / "config.yaml").get("spec", {})
+        behavior_kw = cfg.get("behavior_headings", [])
+        skip_kw = cfg.get("skip_headings", [])
+        behavior_sections = [s for s in sections if any(kw in s["heading"] for kw in behavior_kw)]
         if not behavior_sections:
-            # Fall back to all sections except CAN table-heavy 入力 sections
-            behavior_sections = [s for s in sections if "入力" not in s["heading"]][:5]
+            # Fall back to all sections except input/signal table sections
+            behavior_sections = [s for s in sections
+                                 if not any(kw in s["heading"] for kw in skip_kw)][:5]
         if not behavior_sections:
             behavior_sections = sections[:5]
 

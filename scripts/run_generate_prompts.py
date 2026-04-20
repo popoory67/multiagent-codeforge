@@ -81,7 +81,7 @@ Output ONLY the system prompt text. No meta-commentary, no markdown fences, no e
 METAPROMPT_ANALYZE = """You are a prompt engineer. Your task is to write a SYSTEM PROMPT for an LLM.
 
 The system prompt you write will be used to instruct an LLM to analyze QML source code modules.
-The QML code is from an automotive instrument cluster (車載メーター) application.
+The QML code is from an automotive instrument cluster application.
 
 Write a system prompt that instructs the LLM to:
 1. Output ONLY a valid JSON object (no markdown, no explanations)
