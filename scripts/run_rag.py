@@ -8,7 +8,7 @@ Usage:
     python run_rag.py index <specs_dir> <analysis_dir>
 
     # Step 2: Compare (interactive)
-    python run_rag.py ask "F_53はどの仕様書に対応していますか？"
+    python run_rag.py ask "A is implemented according to spec X?"
 
     # Step 3: Auto-compare all specs vs analysis
     python run_rag.py compare [-o <output_dir>]

@@ -1,5 +1,28 @@
 import time
+import requests
 from openai import OpenAI
+
+
+def check_ollama(base_url: str = "http://localhost:11434", timeout: int = 5) -> bool:
+    """Return True if Ollama server is reachable."""
+    try:
+        url = base_url.rstrip("/").replace("/v1", "")
+        resp = requests.get(f"{url}/api/tags", timeout=timeout)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def assert_ollama(base_url: str = "http://localhost:11434"):
+    """Raise RuntimeError with a clear message if Ollama is not running."""
+    if not check_ollama(base_url):
+        clean = base_url.replace("/v1", "")
+        raise RuntimeError(
+            f"Ollama is not running at {clean}\n"
+            f"  Start it with: ollama serve\n"
+            f"  Or check: ollama list"
+        )
+
 
 class LLMClient:
     def __init__(

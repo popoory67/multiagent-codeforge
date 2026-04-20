@@ -12,6 +12,7 @@ tools:
   qmllint_path: "D:/Qt/6.8.3/mingw_64/bin/qmllint.exe"
 
 project:
+  qml_root: "" # path to QML source root (set before running gap analysis)
   target_exts:
     - .qml
     - .js

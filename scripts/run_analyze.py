@@ -121,7 +121,7 @@ def analyze_module_static(module_path: str, files: list[str]) -> dict:
 # 3. LLM summary job (optional)
 # ---------------------------------------------------------------------------
 
-SUMMARY_SYSTEM = (
+_DEFAULT_SUMMARY_SYSTEM = (
     "You are a QML project analyst. "
     "Given the parsed structure of a QML module, produce a short JSON object with:\n"
     '  "summary": one-line description of the module\'s purpose,\n'
@@ -131,11 +131,24 @@ SUMMARY_SYSTEM = (
 )
 
 
+def load_analyze_prompt() -> str:
+    """Load system prompt from prompts/analyze.md, fall back to default."""
+    prompt_file = SCRIPT_DIR / "prompts" / "analyze.md"
+    if prompt_file.exists():
+        text = prompt_file.read_text(encoding="utf-8").strip()
+        if text:
+            logger.info(f"[PROMPT] Loaded analyze prompt from {prompt_file}")
+            return text
+    logger.info("[PROMPT] Using default analyze prompt (run run_generate_prompts.py to customize)")
+    return _DEFAULT_SUMMARY_SYSTEM
+
+
 class SummaryJob:
-    def __init__(self, job_id, module_data, llm):
+    def __init__(self, job_id, module_data, llm, system_prompt: str):
         self.id = job_id
         self.module_data = module_data
         self.llm = llm
+        self.system_prompt = system_prompt
 
     def run(self):
         compact = {
@@ -148,7 +161,7 @@ class SummaryJob:
         }
         user_msg = json.dumps(compact, ensure_ascii=False, indent=2)
         messages = [
-            {"role": "system", "content": SUMMARY_SYSTEM},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_msg},
         ]
         raw = self.llm.chat(messages, stream=False)
@@ -194,8 +207,9 @@ async def analyze(target_root: str, use_llm: bool = True):
             temperature=model_cfg.get("temperature", 0.2),
         )
 
+        analyze_prompt = load_analyze_prompt()
         jobs = [
-            SummaryJob(i, md, llm)
+            SummaryJob(i, md, llm, analyze_prompt)
             for i, md in enumerate(module_data)
         ]
 
