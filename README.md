@@ -219,7 +219,7 @@ specs/*.md (43 files)          QML source code
       │                              │
       ▼                              ▼
   Section chunking              Static parse
-  (## 基本動作 sections)        (functions, signals,
+  (## sections)        (functions, signals,
       │                          properties, bindings)
       │                              │
       └──────────┬───────────────────┘

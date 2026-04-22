@@ -51,9 +51,10 @@ def _ensure_packages():
 _ensure_packages()
 
 from utils.project_utils import load_yaml          # noqa: E402
-from utils.llm_client import assert_ollama         # noqa: E402
+from utils.llm_client import assert_ollama, LLMClient  # noqa: E402
 from utils.logger import setup_logger              # noqa: E402
 from utils.rag_store import RAGStore               # noqa: E402
+from agents.gap_pipeline import GapPipeline, render_gap_md, render_index_md  # noqa: E402
 
 logger = setup_logger("GapAnalysis", "GapAnalysis_")
 
@@ -100,19 +101,15 @@ def step_check_ollama(api_base: str):
 
 def step_generate_prompts():
     step(2, "Generate prompts (llama)")
-    compare_md = PROMPTS_DIR / "compare.md"
-    analyze_md  = PROMPTS_DIR / "analyze.md"
-
+    prompt_types = ["compare", "analyze", "extractor", "judge"]
     missing = []
-    if not compare_md.exists() or compare_md.stat().st_size < 100:
-        missing.append("compare")
-    if not analyze_md.exists() or analyze_md.stat().st_size < 100:
-        missing.append("analyze")
+    for t in prompt_types:
+        p = PROMPTS_DIR / f"{t}.md"
+        if not p.exists() or p.stat().st_size < 100:
+            missing.append(t)
 
     if not missing:
         print("  OK  Prompts already exist — skipping")
-        print(f"       compare: {compare_md}")
-        print(f"       analyze: {analyze_md}")
         print("  TIP: Delete prompt files and re-run to regenerate them.")
         return
 
@@ -194,24 +191,105 @@ def step_index(analysis_dir: Path, qml_root: str, skip: bool):
 
 
 # ---------------------------------------------------------------------------
-# Step 5: Gap analysis
+# Step 5: Gap analysis (3-agent pipeline)
 # ---------------------------------------------------------------------------
 
-def step_gap_analysis(output_dir: Path, skip: bool):
+def _load_prompts() -> dict:
+    """Load agent prompts from prompts/ directory into a nested dict."""
+    prompts = {}
+    for agent in ("extractor", "judge", "compare", "analyze"):
+        p = PROMPTS_DIR / f"{agent}.md"
+        if p.exists() and p.stat().st_size > 10:
+            prompts[agent] = {"system": p.read_text(encoding="utf-8").strip()}
+    return prompts
+
+
+def _split_spec_sections(text: str) -> list[dict]:
+    """Split a spec MD file into sections by ## headings."""
+    sections = []
+    current_heading = "Introduction"
+    current_lines = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if current_lines:
+                sections.append({
+                    "heading": current_heading,
+                    "content": "\n".join(current_lines).strip(),
+                })
+            current_heading = line[3:].strip()
+            current_lines = []
+        else:
+            current_lines.append(line)
+    if current_lines:
+        sections.append({
+            "heading": current_heading,
+            "content": "\n".join(current_lines).strip(),
+        })
+    return sections
+
+
+def step_gap_analysis(output_dir: Path, skip: bool, config: dict, models: dict):
     step(5, f"Gap analysis → {output_dir}")
 
     if skip:
         print("  SKIP  --skip-compare given")
         return
 
-    rc = run_script(
-        "run_rag.py", "compare",
-        "--specs", str(SPECS_DIR),
-        "-o", str(output_dir),
+    # Build LLM client
+    default = models["default_model"]
+    cfg = models["models"][default]
+    llm = LLMClient(
+        base_url=cfg["api_base"],
+        api_key=cfg["api_key"],
+        model=cfg["model"],
+        temperature=0.1,
+        max_tokens=1500,
+        logger=logger,
     )
-    if rc != 0:
-        print(f"  ERROR: run_rag.py compare exited with code {rc}")
-        sys.exit(1)
+
+    # Build RAG store
+    rag = RAGStore(persist_dir=RAG_DIR)
+
+    # Load prompts and config
+    prompts = _load_prompts()
+    spec_cfg = config.get("spec", {})
+    behavior_headings = spec_cfg.get("behavior_headings", ["基本動作", "動作"])
+    skip_headings = spec_cfg.get("skip_headings", ["入力"])
+
+    pipeline = GapPipeline(
+        llm=llm,
+        prompts=prompts,
+        rag_store=rag,
+        behavior_headings=behavior_headings,
+        skip_headings=skip_headings,
+        logger=logger,
+    )
+
+    # Find spec files
+    spec_files = sorted(SPECS_DIR.glob("*.md"))
+    if not spec_files:
+        print(f"  WARNING: No spec files found in {SPECS_DIR}")
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    reports = []
+
+    for sf in spec_files:
+        spec_name = sf.stem
+        print(f"  Analyzing {spec_name} ...")
+        text = sf.read_text(encoding="utf-8", errors="replace")
+        sections = _split_spec_sections(text)
+
+        report = pipeline.run(spec_name, sections)
+        reports.append(report)
+
+        # Save per-spec report
+        out_md = output_dir / f"{spec_name}.md"
+        out_md.write_text(render_gap_md(report), encoding="utf-8")
+
+    # Save index
+    index_text = render_index_md(reports, output_dir)
+    (output_dir / "index.md").write_text(index_text, encoding="utf-8")
 
     print(f"  OK  Gap analysis saved to: {output_dir}")
 
@@ -299,7 +377,7 @@ def main():
 
     analysis_dir = step_analyze(qml_root, skip=args.skip_analyze)
     step_index(analysis_dir, qml_root, skip=args.skip_index)
-    step_gap_analysis(output_dir, skip=args.skip_compare)
+    step_gap_analysis(output_dir, skip=args.skip_compare, config=config, models=models)
     step_summary(output_dir)
 
 

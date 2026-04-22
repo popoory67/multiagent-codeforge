@@ -94,6 +94,52 @@ Write a system prompt that instructs the LLM to:
 Output ONLY the system prompt text. No meta-commentary, no markdown fences, no explanation."""
 
 
+METAPROMPT_EXTRACTOR = """You are a prompt engineer. Your task is to write a SYSTEM PROMPT for an LLM.
+
+The system prompt you write will be used to instruct an LLM acting as a requirements analyst.
+It will receive a section of a Japanese automotive instrument cluster specification document
+and must extract each testable requirement from it.
+
+The spec format contains behavior tables with:
+{spec_observations}
+
+Write a system prompt that instructs the LLM to:
+1. Output ONLY a valid JSON object (no markdown, no explanations)
+2. Extract each testable requirement (one per table row or condition)
+3. Output format: {{"requirements": [{{"id": "REQ-001", "description": "one-line English summary", "inputs": {{"signal": "value"}}, "expected": "expected display state or behavior"}}]}}
+4. Rules: id is sequential REQ-001/002/..., description in English, inputs as key-value pairs from input columns, expected from output column
+5. Skip rows where all outputs are non-display/off with no specific condition
+6. Maximum 20 requirements per section
+
+Make the prompt specific to CAN signal table format used in automotive specs.
+Output ONLY the system prompt text. No meta-commentary, no markdown fences, no explanation."""
+
+
+METAPROMPT_JUDGE = """You are a prompt engineer. Your task is to write a SYSTEM PROMPT for an LLM.
+
+The system prompt you write will be used to instruct an LLM acting as a code review expert
+for automotive instrument cluster QML software.
+
+It will receive:
+1. A single requirement (id, description, inputs dict, expected output)
+2. Relevant QML source code chunks retrieved from the codebase
+
+Write a system prompt that instructs the LLM to:
+1. Output ONLY a valid JSON object (no markdown, no explanations)
+2. Determine if the requirement is implemented in the provided code
+3. Output format: {{"req_id": "REQ-001", "status": "implemented|missing|partial", "confidence": "high|medium|low", "evidence": "one sentence"}}
+4. Definitions:
+   - implemented: code clearly handles this input/output condition
+   - missing: no matching logic found
+   - partial: related logic exists but condition or output is incomplete
+   - confidence high: direct match (function name, signal name, property value)
+   - confidence medium: indirect evidence (similar logic, related component)
+   - confidence low: code chunks not clearly related
+5. evidence: one concise sentence describing what was found or not found
+
+Output ONLY the system prompt text. No meta-commentary, no markdown fences, no explanation."""
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -170,17 +216,45 @@ def cmd_analyze(output_path: Path):
     print(generated[:500] + "..." if len(generated) > 500 else generated)
 
 
+def cmd_extractor(specs_dir: Path, output_path: Path):
+    logger.info(f"[EXTRACTOR] Sampling specs from {specs_dir} ...")
+    spec_observations = sample_spec_sections(specs_dir, n_samples=3)
+    metaprompt = METAPROMPT_EXTRACTOR.format(spec_observations=spec_observations)
+
+    llm = get_llm()
+    logger.info("[LLM] Generating extractor system prompt ...")
+    generated = llm.chat([{"role": "user", "content": metaprompt}], stream=False)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(generated.strip(), encoding="utf-8")
+    logger.info(f"[SAVE] {output_path}")
+    print(f"\n--- Generated extractor prompt saved to {output_path} ---")
+    print(generated[:500] + "..." if len(generated) > 500 else generated)
+
+
+def cmd_judge(output_path: Path):
+    llm = get_llm()
+    logger.info("[LLM] Generating judge system prompt ...")
+    generated = llm.chat([{"role": "user", "content": METAPROMPT_JUDGE}], stream=False)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(generated.strip(), encoding="utf-8")
+    logger.info(f"[SAVE] {output_path}")
+    print(f"\n--- Generated judge prompt saved to {output_path} ---")
+    print(generated[:500] + "..." if len(generated) > 500 else generated)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser(
         description="Use LLM to generate system prompts for the analysis pipeline"
     )
-    parser.add_argument("--type", choices=["compare", "analyze"], default=None,
-                        help="Which prompt to generate")
+    parser.add_argument("--type", choices=["compare", "analyze", "extractor", "judge"],
+                        default=None, help="Which prompt to generate")
     parser.add_argument("--all", action="store_true", help="Generate all prompts")
     parser.add_argument("--specs", default="specs",
-                        help="Path to specs folder (used for compare prompt, default: specs/)")
+                        help="Path to specs folder (used for compare/extractor prompts, default: specs/)")
     args = parser.parse_args()
 
     if not args.type and not args.all:
@@ -190,14 +264,22 @@ def main():
     specs_dir = SCRIPT_DIR / args.specs
     prompts_dir = SCRIPT_DIR / "prompts"
 
-    generate_compare = args.all or args.type == "compare"
-    generate_analyze = args.all or args.type == "analyze"
+    generate_compare   = args.all or args.type == "compare"
+    generate_analyze   = args.all or args.type == "analyze"
+    generate_extractor = args.all or args.type == "extractor"
+    generate_judge     = args.all or args.type == "judge"
 
     if generate_compare:
         cmd_compare(specs_dir, prompts_dir / "compare.md")
 
     if generate_analyze:
         cmd_analyze(prompts_dir / "analyze.md")
+
+    if generate_extractor:
+        cmd_extractor(specs_dir, prompts_dir / "extractor.md")
+
+    if generate_judge:
+        cmd_judge(prompts_dir / "judge.md")
 
 
 if __name__ == "__main__":
