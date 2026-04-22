@@ -33,12 +33,13 @@ _ensure_packages()
 
 import sys
 from pathlib import Path
+from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils.docx_reader import docx_to_md  # noqa: E402
 import pymupdf  # noqa: E402
 
 
-def _table_to_md(table: list[list]) -> str:
+def _table_to_md(table: list) -> str:
     """Convert a 2D list (table) to markdown table."""
     if not table or not table[0]:
         return ""
@@ -53,7 +54,7 @@ def _table_to_md(table: list[list]) -> str:
 
 
 
-def pdf_to_md(pdf_path: Path, images_dir: Path | None = None, img_rel_path: str = "") -> str:
+def pdf_to_md(pdf_path: Path, images_dir: Optional[Path] = None, img_rel_path: str = "") -> str:
     doc = pymupdf.open(str(pdf_path))
     pages = []
     img_counter = 1
@@ -123,7 +124,7 @@ def pdf_to_md(pdf_path: Path, images_dir: Path | None = None, img_rel_path: str 
 _img_folder_counter = 0
 
 
-def convert_file(src: Path, out_dir: Path | None) -> Path:
+def convert_file(src: Path, out_dir: Optional[Path]) -> Path:
     global _img_folder_counter
     _img_folder_counter += 1
     ext = src.suffix.lower()
